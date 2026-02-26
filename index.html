@@ -84,7 +84,6 @@
     border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;
   }
 
-  /* Elever-grid */
   #studentList {
     display: grid; grid-template-columns: repeat(5, 1fr);
     gap: 14px; margin-top: 6px;
@@ -95,7 +94,9 @@
     border: 1px solid var(--border); border-radius: 12px;
     transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
     position: relative; user-select: none; box-shadow: 0 1px 0 rgba(0,0,0,0.02); min-height: 96px;
+    overflow: hidden;
   }
+
   .student:hover { transform: translateY(-2px); }
 
   .running { background-color: var(--running) !important; }
@@ -103,13 +104,22 @@
 
   .deleteBtn {
     position: absolute; top: 8px; right: 8px; background: transparent; border: none;
-    color: inherit; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1;
+    color: inherit; font-size: 20px; cursor: pointer; padding: 4px; z-index: 10;
+  }
+
+  /* 👉 NEW: usynlig overlay-knapp for stabile klikk */
+  .cardClick {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    z-index: 5;
   }
 
   .name { font-weight: 700; display: block; margin-bottom: 6px; font-size: 19px; }
   .time { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 18px; }
 
-  /* Responsivitet */
   @media (max-width: 1024px) { #studentList { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 820px)  { #studentList { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 520px)  { #studentList { grid-template-columns: 1fr; } }
@@ -134,7 +144,7 @@
     </div>
 
     <div class="row">
-      <label for="maxMinutes"><strong>Maks tid (minutter):</strong></label>
+      <label><strong>Maks tid (minutter):</strong></label>
       <input type="number" id="maxMinutes" min="1" max="240" value="10" style="width: 100px;">
       <span class="muted">Settes før start</span>
     </div>
@@ -160,208 +170,134 @@
 
 </div>
 
-<!-- SheetJS for å generere ekte .xlsx i nettleseren -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <script>
   let students = [];
   let interval = null;
   let globalTime = 0;
-  let maxTime = 600; // sekunder (settes fra input før start)
-  let timerRunning = false; // skjul sletting under økt
+  let maxTime = 600;
+  let timerRunning = false;
 
-  // ---- Mørk modus ----
-  function toggleDarkMode() {
-    document.body.classList.toggle("dark");
-  }
+  function toggleDarkMode() { document.body.classList.toggle("dark"); }
 
-  // ---- Legg til elev ----
   function addStudent() {
-    const nameInput = document.getElementById("nameInput");
-    const name = nameInput.value.trim();
+    const input = document.getElementById("nameInput");
+    const name = input.value.trim();
     if (name === "") return;
-
     students.push({ name, time: 0, active: false, finished: false });
-    nameInput.value = "";
+    input.value = "";
     renderStudents();
   }
 
-  // ---- Import ----
   function importStudents() {
     const area = document.getElementById("pasteArea");
-    const text = area.value.trim();
-    if (text === "") return;
-
-    const lines = text.split(/\r?\n/);
-    lines.forEach(line => {
-      const name = line.trim();
-      if (name !== "") {
-        students.push({ name, time: 0, active: false, finished: false });
-      }
+    const lines = area.value.trim().split(/\r?\n/);
+    lines.forEach(l => {
+      if (l.trim() !== "") students.push({ name: l.trim(), time: 0, active: false, finished: false });
     });
-
     area.value = "";
     renderStudents();
   }
 
-  // ---- Hent maks-tid ----
   function getMaxTimeFromInput() {
     const input = document.getElementById("maxMinutes");
     let min = parseInt(input.value, 10);
     if (isNaN(min) || min < 1) min = 10;
     if (min > 240) min = 240;
-    input.value = String(min);
+    input.value = min;
     return min * 60;
   }
 
-  // ---- Start for alle ----
   function startAll() {
     if (interval !== null) return;
-
     maxTime = getMaxTimeFromInput();
     globalTime = 0;
-
     students.forEach(s => { if (!s.finished) s.active = true; });
-
     timerRunning = true;
     updateStatus();
-    renderStudents();
-
     interval = setInterval(() => {
       globalTime++;
       students.forEach(s => { if (s.active) s.time++; });
-
-      if (globalTime >= maxTime) {
-        stopAll();
-        return;
-      }
+      if (globalTime >= maxTime) stopAll();
       renderStudents();
     }, 1000);
   }
 
-  // ---- Stopp alle ----
   function stopAll() {
     clearInterval(interval);
     interval = null;
-
     students.forEach(s => {
-      if (s.active) {
-        s.active = false;
-        s.finished = true;
-      }
+      if (s.active) { s.active = false; s.finished = true; }
     });
-
     timerRunning = false;
     updateStatus();
     renderStudents();
   }
 
-  // ---- Stopp én elev ----
-  function stopStudent(index) {
-    if (!students[index].active) return;
-    students[index].active = false;
-    students[index].finished = true;
+  function stopStudent(i) {
+    if (!students[i].active) return;
+    students[i].active = false;
+    students[i].finished = true;
     renderStudents();
   }
 
-  // ---- Slett elev ----
-  function deleteStudent(index) {
+  function deleteStudent(i) {
     if (timerRunning) return;
-    students.splice(index, 1);
+    students.splice(i, 1);
     renderStudents();
   }
 
-  // ---- Sorter ----
   function sortStudents() {
     students.sort((a, b) =>
-      a.name.localeCompare(b.name, 'no', { sensitivity: 'base' })
+      a.name.localeCompare(b.name, "no", { sensitivity: "base" })
     );
     renderStudents();
   }
 
-  // ---- Nullstill ----
   function restartTimer() {
-    const ok = confirm("Nullstill alle tider og status?");
-    if (!ok) return;
-
+    if (!confirm("Nullstill alle tider og status?")) return;
     clearInterval(interval);
     interval = null;
     globalTime = 0;
     timerRunning = false;
-
     students.forEach(s => { s.time = 0; s.active = false; s.finished = false; });
-
     updateStatus();
     renderStudents();
   }
 
-  // ---- Formater tid ----
   function formatTime(sec) {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   }
 
-  // ---- Eksporter: XLSX ----
   function exportXLSX() {
-    // Bygg et 2D-array: første rad er header
     const data = [["Navn", "Tid (mm:ss)"]];
-    students.forEach(s => {
-      data.push([s.name, formatTime(s.time)]);
-    });
+    students.forEach(s => data.push([s.name, formatTime(s.time)]));
 
-    // Lag et ark fra array
-    const worksheet = XLSX.utils.aoa_to_sheet(data);
-
-    // Autofit kolonnebredder (enkel heuristikk)
-    const colWidths = [
-      { wch: Math.max(10, ...data.map(r => (r[0] ? String(r[0]).length : 0))) + 2 },
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [
+      { wch: Math.max(10, ...data.map(r => (r[0] || "").length)) + 2 },
       { wch: 10 }
     ];
-    worksheet["!cols"] = colWidths;
 
-    // Lag arbeidsbok og legg til arket
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Tider");
-
-    // Last ned som .xlsx
-    XLSX.writeFile(workbook, "tider.xlsx");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tider");
+    XLSX.writeFile(wb, "tider.xlsx");
   }
 
-  // ---- (Valgfritt) Eksporter CSV – beholdt som backup ----
-  function exportCSV() {
-    let csv = "Navn,Tid\n";
-    students.forEach(s => {
-      csv += `${s.name},${formatTime(s.time)}\n`;
-    });
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "tider.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  // ---- Status-tekst ----
   function updateStatus() {
     const el = document.getElementById("statusText");
-    if (timerRunning) {
-      const remaining = Math.max(0, maxTime - globalTime);
-      el.textContent = `⏱️ Økt pågår ${formatTime(remaining)}`;
-    } else {
-      el.textContent = "";
-    }
+    if (!timerRunning) { el.textContent = ""; return; }
+    const remaining = Math.max(0, maxTime - globalTime);
+    el.textContent = `⏱️ Økt pågår ${formatTime(remaining)}`;
   }
 
-  // ---- Render ----
+  /* ---- FIXED CLICK HANDLING (overlay button) ---- */
   function renderStudents() {
-    const container = document.getElementById("studentList");
-    container.innerHTML = "";
+    const list = document.getElementById("studentList");
+    list.innerHTML = "";
 
     const showDelete = !timerRunning;
 
@@ -372,22 +308,16 @@
       if (s.finished) div.classList.add("finished");
 
       div.innerHTML = `
-        ${showDelete ? `<button class="deleteBtn" title="Fjern elev" onclick="deleteStudent(${i})">🗑️</button>` : ""}
+        ${showDelete ? `<button class="deleteBtn" onclick="deleteStudent(${i})">🗑️</button>` : ""}
+        <button class="cardClick" onclick="stopStudent(${i})"></button>
         <span class="name">${s.name}</span>
         <span class="time">${formatTime(s.time)}</span>
       `;
 
-      // Klikk på kortet stopper elev (men ikke hvis man trykker søppelbøtta)
-      div.onclick = (e) => {
-        if (e.target && e.target.classList.contains("deleteBtn")) return;
-        stopStudent(i);
-      };
-
-      container.appendChild(div);
+      list.appendChild(div);
     });
   }
 
-  // ---- Init ----
   window.onload = () => {
     updateStatus();
     renderStudents();
@@ -395,6 +325,4 @@
 </script>
 
 </body>
-
 </html>
-
